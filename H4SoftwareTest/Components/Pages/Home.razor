@@ -17,19 +17,31 @@
     </NotAuthorized>
 </AuthorizeView>
 *@
-
-@if (isAdmin)
+@using System.IO;
+@using System.Threading.Tasks;
+@using System.Text;
+@if (isAuthenticated)
 {
-    <h1>Hello, world!</h1>
-    <p>You are Admin</p>
+    <h1>Welcome,You are logedin!</h1>
+    if(isAdmin)
+    {
+        <p>You are Admin</p>
+    }
+    
 }
 else
 {
     <p>You must log in to view page</p>
 }
+<button @onclick="SaveToFile">Press Me</button>
+@if (isSaveToFile)
+{
+    <p>Data is saved to file</p>
+}
 @code{
     public bool isAuthenticated;
     private bool isAdmin;
+    public bool isSaveToFile;
     protected override async Task OnInitializedAsync(){
         var authState = await  _authenticationStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
@@ -38,5 +50,26 @@ else
         isAdmin = user.IsInRole("Admin");
         // if(isAuthenticated)
         //     await _roleHandler.CreateUserRolesAsync(user.Identity.Name, "Admin", _serviceProvider);
+    }
+    public async Task SaveToFile()
+    {
+        // Perform file-saving logic here...
+        try
+        {
+            string filePath = "file.txt";
+            string data = " This is the data to save to file";
+            // Open or create the file for writing
+            using (StreamWriter writer = new StreamWriter(filePath, append: false, Encoding.UTF8))
+            {
+                await writer.WriteAsync(data);
+            }
+            isSaveToFile = true;
+        }
+        catch (Exception ex)
+        {
+            throw ex;
+        }
+
+        
     }
 }
