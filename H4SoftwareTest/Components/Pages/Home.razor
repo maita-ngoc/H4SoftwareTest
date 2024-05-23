@@ -1,9 +1,19 @@
 ﻿@page "/"
 @* attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy ="AuthenticateUser")]*@
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@using H4SoftwareTest.Data
+@using H4SoftwareTest.Data.Manager
+@using H4SoftwareTest.Data.Models
 
 @inject AuthenticationStateProvider _authenticationStateProvider
-@*inject Code.RoleHandler _roleHandler
-@inject IServiceProvider _serviceProvider*@
+@inject UserManager<ApplicationUser> UserManager
+@inject Code.RoleHandler _roleHandler
+@inject IServiceProvider _serviceProvider
+@inject Data.Manager.ICprManager cprManager
+@inject Data.Manager.ITodoManager todoManager
+@inject Code.EncryptionHandler _encryptHandler
+@inject Code.HashingHandler _hashingHandler
 
 <PageTitle>Home</PageTitle>
 
@@ -22,26 +32,108 @@
 @using System.Text;
 @if (isAuthenticated)
 {
-    <h1>Welcome,You are logedin!</h1>
+    <h3>Welcome @email !</h3>
     if(isAdmin)
     {
-        <p>You are Admin</p>
+        @if(users!=null && users.Count >0)
+        {
+            <p>List of registed users for Todo-app</p>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>User ID</th>
+                        <th>Email</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        <tr>
+                            <td>@user.Id</td>
+                            <td>@user.Email</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p>There is no registed user for Todo-app yet.</p>
+        }
     }
-    
+    else
+    {
+        <div>
+            @if (!isCprVerified)
+            {
+                <form id="dataForm" @onsubmit="BtnSubmitCpr_clicked">
+                    <label for="dataInput">Enter CPR number: </label>
+                    <input type="number" id="cprNumber" @bind="cprNumber" required>
+                    <button type="submit">Send</button>
+                </form>
+            }
+            else
+            {
+                <form id="dataForm" @onsubmit="BtnSubmitTodoList_clicked">
+                    <label for="dataInput">Enter Task: </label>
+                    <input type="text" id="task" @bind="task" required>
+                    <button type="submit">Send</button>
+                </form>
+
+                @if (taskListObj != null && taskListObj.Count > 0)
+                {
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Task ID</th>
+                                <th>Task Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var task in taskListObj)
+                            {
+                                <tr>
+                                    <td>@task.Id</td>
+                                    <td>@_encryptHandler.DecryptAsymetrisc(task.Task)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else if (taskListObj != null)
+                {
+                    <p>No tasks found for the provided CPR number.</p>
+                }
+            }
+        </div>
+
+        <div>
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <p>@message</p>
+            }
+        </div>
+    }
+
 }
 else
 {
     <p>You must log in to view page</p>
 }
-<button @onclick="SaveToFile">Press Me</button>
-@if (isSaveToFile)
-{
-    <p>Data is saved to file</p>
-}
 @code{
     public bool isAuthenticated;
     private bool isAdmin;
     public bool isSaveToFile;
+    private string email;
+    private string cprNumber;
+    private string message;
+    private bool isCprVerified;
+    private string task;
+    private List<Tasks> taskListObj;
+    private int userId;
+    private List<Cpr> users;
+
+
     protected override async Task OnInitializedAsync(){
         var authState = await  _authenticationStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
@@ -50,6 +142,27 @@ else
         isAdmin = user.IsInRole("Admin");
         // if(isAuthenticated)
         //     await _roleHandler.CreateUserRolesAsync(user.Identity.Name, "Admin", _serviceProvider);
+
+        taskListObj = new List<Tasks>();
+        if (user.Identity.IsAuthenticated)
+        {
+            var userEmail = user.FindFirst(c => c.Type == ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                var identityUser = await UserManager.GetUserAsync(user);
+                if (identityUser != null)
+                {
+                    email = await UserManager.GetEmailAsync(identityUser);
+                }
+            }
+            else
+            {
+                email = userEmail;
+            }
+            users = await cprManager.GetAllUser();
+
+        }
     }
     public async Task SaveToFile()
     {
@@ -70,6 +183,57 @@ else
             throw ex;
         }
 
-        
+
+    }
+    protected async Task BtnSubmitCpr_clicked()
+    {
+        try
+        {
+            bool isEmailExist = await cprManager.isEmailExist(email);
+            bool isCprExist = await cprManager.isCprExist(cprNumber);
+
+            if (isEmailExist)
+            {
+                if (isCprExist)
+                {
+                    userId = await cprManager.GetIdByEmail(email);
+                    isCprVerified = true;
+                    taskListObj = await todoManager.GetAllTasksByUserIdAsync(userId);
+                }
+                else
+                {
+                    message = "Incorrect Cpr";
+                    isCprVerified = false;
+                }
+            }
+            else
+            {
+                await cprManager.CreateCprAsync(email, cprNumber);
+                isCprVerified = true;
+                message = "Cpr number is saved!";
+            }
+
+        }
+        catch (Exception ex)
+        {
+            // Log the exception
+            message = "An error occurred while processing the CPR.";
+        }
+    }
+
+    protected async Task BtnSubmitTodoList_clicked()
+    {
+        try
+        {
+            
+            await todoManager.CreateTaskAsync(userId, task);
+            taskListObj = await todoManager.GetAllTasksByUserIdAsync(userId);
+            message = "";
+        }
+        catch (Exception ex)
+        {
+            // Log the exception
+            message = "An error occurred while processing the tasks.";
+        }
     }
 }
